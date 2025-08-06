@@ -16,10 +16,11 @@ st.set_page_config(
         'About': "## Ultra-fast video conversion using FFmpeg"
     }
 )
+
 st.title("⚡ Lightning Fast AVI to MP4 Converter")
 st.caption("Upload multiple AVI files for efficient conversion to MP4")
 
-# Custom CSS
+# Custom CSS with animated dots
 st.markdown("""
 <style>
     .stProgress > div > div > div > div { background-color: #4CAF50; }
@@ -37,6 +38,34 @@ st.markdown("""
     }
     .success-card { border-left: 5px solid #4CAF50; }
     .error-card { border-left: 5px solid #f44336; }
+    
+    .dots-container {
+        display: flex;
+        gap: 8px;
+        justify-content: center;
+        align-items: center;
+        margin: 20px 0;
+    }
+    .dot {
+        width: 12px;
+        height: 12px;
+        background-color: #3498db;
+        border-radius: 50%;
+        animation: pulse 1.4s ease-in-out infinite both;
+    }
+    .dot:nth-child(1) { animation-delay: -0.32s; }
+    .dot:nth-child(2) { animation-delay: -0.16s; }
+    .dot:nth-child(3) { animation-delay: 0s; }
+    @keyframes pulse {
+        0%, 80%, 100% {
+            transform: scale(0);
+            opacity: 0.5;
+        }
+        40% {
+            transform: scale(1);
+            opacity: 1;
+        }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -59,7 +88,6 @@ def convert_single_video(input_path: Path, output_path: Path) -> Tuple[bool, str
             "-v", "error",
             str(output_path)
         ]
-
         result = subprocess.run(
             cmd,
             check=True,
@@ -77,12 +105,9 @@ def process_file(file, index: int):
     with tempfile.NamedTemporaryFile(suffix=".avi") as temp_file:
         temp_file.write(file.getbuffer())
         temp_file.flush()
-
         output_filename = f"{Path(file.name).stem}_{index}.mp4"
         output_path = OUTPUT_DIR / output_filename
-
         success, error = convert_single_video(Path(temp_file.name), output_path)
-
         if success:
             with open(output_path, "rb") as f:
                 file_bytes = f.read()
@@ -110,13 +135,22 @@ if uploaded_files:
 
         with status_area.container():
             st.subheader("Conversion Progress")
+
+            # Add animated dots during conversion
+            st.markdown("""
+            <div class="dots-container">
+                <div class="dot"></div>
+                <div class="dot"></div>
+                <div class="dot"></div>
+            </div>
+            """, unsafe_allow_html=True)
+
             progress_text = st.empty()
             results = []
 
             # Process files with ThreadPoolExecutor
             with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
                 futures = []
-
                 # Submit all files for processing
                 for i, file in enumerate(uploaded_files):
                     futures.append(executor.submit(process_file, file, i))
@@ -124,7 +158,6 @@ if uploaded_files:
                 # Monitor progress
                 completed = 0
                 total = len(uploaded_files)
-
                 for future in futures:
                     try:
                         result = future.result()
