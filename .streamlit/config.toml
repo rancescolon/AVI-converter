@@ -1,2 +1,7 @@
 [server]
-maxUploadSize = 1000
+maxUploadSize = 500  # Max file size in MB
+enableCORS = false
+enableXsrfProtection = true
+
+[browser]
+gatherUsageStats = false
