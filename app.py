@@ -4,9 +4,7 @@ import streamlit as st
 from pathlib import Path
 import shutil
 import tempfile
-
-# Set upload size limit to 500MB
-# st.set_option("server.maxUploadSize", 500)
+import traceback
 
 # Streamlit page settings
 st.set_page_config(page_title="AVI to MP4 Converter", layout="centered")
@@ -20,7 +18,7 @@ uploaded_files = st.file_uploader("Upload AVI files", type=["avi"], accept_multi
 output_dir = Path("converted_videos")
 output_dir.mkdir(exist_ok=True)
 
-def convert_to_mp4(input_path: Path, output_path: Path, progress):
+def convert_to_mp4(input_path: Path, output_path: Path, progress) -> bool:
     command = [
         "ffmpeg",
         "-y",  # Overwrite output file if exists
@@ -33,16 +31,50 @@ def convert_to_mp4(input_path: Path, output_path: Path, progress):
     ]
 
     try:
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True
+        )
+
+        full_output = ""
         progress_val = 0
-        while process.poll() is None:
+
+        while True:
+            output_line = process.stdout.readline()
+            if output_line == '' and process.poll() is not None:
+                break
+            if output_line:
+                full_output += output_line
+                # You could parse progress from FFmpeg output if needed
+
             progress_val = min(progress_val + 5, 95)
             progress.progress(progress_val)
             st.sleep(0.1)
+
         progress.progress(100)
+
+        if process.returncode != 0:
+            raise RuntimeError(f"FFmpeg exited with code {process.returncode}")
+
         return True
+
     except Exception as e:
-        print(f"Error converting {input_path}: {e}")
+        error_message = f"""
+        ### ❌ Error converting file: `{input_path.name}`
+        **Exception:** `{str(e)}`
+        **Traceback:**
+        ```
+        {traceback.format_exc()}
+        ```
+        **FFmpeg Output:**
+        ```
+        {full_output.strip()}
+        ```
+        """
+        st.markdown(error_message)
+        print(error_message)
         return False
 
 # Convert button
@@ -82,5 +114,6 @@ if st.button("Convert to MP4"):
                 st.download_button(f"⬇️ Download {f.name}", f.read_bytes(), file_name=f.name)
 
         if failed_files:
-            st.error(f"❌ Failed to convert: {', '.join(failed_files)}")
-
+            st.error(f"❌ Failed to convert the following files:")
+            for fname in failed_files:
+                st.markdown(f"- `{fname}`")
