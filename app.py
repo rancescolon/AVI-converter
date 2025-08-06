@@ -9,7 +9,7 @@ from typing import List, Tuple
 
 # Streamlit configuration
 st.set_page_config(
-    page_title="⚡ AVI to MP4 Converter",
+    page_title="AVI to MP4 Converter",
     layout="wide",
     menu_items={
         'About': "## Fast video conversion using FFmpeg"
@@ -142,25 +142,25 @@ def process_file(file, index: int):
 
 
 # Main application
-st.title("⚡ AVI to MP4 Converter")
-st.markdown("Upload your AVI files and convert them to MP4 format quickly and easily.")
+st.title("AVI to MP4 Converter")
+st.markdown("Upload an AVI file and convert it to MP4 format quickly and easily.")
 
 # File uploader
 uploaded_files = st.file_uploader(
-    "Choose AVI files to convert",
+    "Choose a AVI file to convert",
     type=["avi"],
     accept_multiple_files=True,
-    help="Select one or more AVI files (max 10 files recommended)"
+    help="Select one AVI file"
 )
 
 # Limit files for performance
 if uploaded_files and len(uploaded_files) > 10:
-    st.warning("⚠️ For optimal performance, please upload no more than 10 files at once.")
+    st.warning("⚠️ Too prevent Crashing, load files 1 at a time.")
     uploaded_files = uploaded_files[:10]
 
 # Show file info
 if uploaded_files:
-    st.info(f"📁 {len(uploaded_files)} file(s) ready for conversion")
+    st.info(f"📁 {len(uploaded_files)} file ready for conversion")
 
     # Convert button
     if st.button("🚀 Convert to MP4", type="primary", use_container_width=True):
@@ -224,7 +224,7 @@ if uploaded_files:
 
 
             # Download section
-            st.subheader("📥 Download Converted Files")
+            st.subheader("📥 Download Converted File")
 
             for success, original_name, file_data, output_name, _, duration in successful:
                 col1, col2 = st.columns([3, 1])
@@ -242,7 +242,7 @@ if uploaded_files:
 
         # Show errors if any
         if failed:
-            st.subheader("❌ Failed Conversions")
+            st.subheader("❌ Failed Conversion")
             for success, original_name, _, _, error_msg, duration in failed:
                 st.markdown(f"""
                 <div class="error-message">
@@ -259,7 +259,7 @@ if uploaded_files:
 else:
     st.markdown("""
     ### 📋 How to use:
-    1. Click "Browse files" or drag and drop AVI files
+    1. Click "Browse file" or drag and drop AVI file
     2. Click "Convert to MP4" to start the conversion
-    3. Download your converted MP4 files
+    3. Download your converted MP4 file
     """)
