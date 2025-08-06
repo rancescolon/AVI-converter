@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import os
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Tuple
 
 # Streamlit configuration
@@ -38,7 +38,7 @@ st.markdown("""
     }
     .success-card { border-left: 5px solid #4CAF50; }
     .error-card { border-left: 5px solid #f44336; }
-    
+
     .dots-container {
         display: flex;
         gap: 8px;
@@ -72,7 +72,7 @@ st.markdown("""
 # Constants
 OUTPUT_DIR = Path("converted_videos")
 OUTPUT_DIR.mkdir(exist_ok=True)
-MAX_THREADS = 3  # Optimal for Streamlit Cloud resources
+MAX_THREADS = 6  # Adjust based on available resources
 
 def convert_single_video(input_path: Path, output_path: Path) -> Tuple[bool, str]:
     """Convert a single video file using optimized FFmpeg commands"""
@@ -88,12 +88,7 @@ def convert_single_video(input_path: Path, output_path: Path) -> Tuple[bool, str
             "-v", "error",
             str(output_path)
         ]
-        result = subprocess.run(
-            cmd,
-            check=True,
-            capture_output=True,
-            text=True
-        )
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
         return (True, "")
     except subprocess.CalledProcessError as e:
         return (False, e.stderr)
@@ -101,19 +96,22 @@ def convert_single_video(input_path: Path, output_path: Path) -> Tuple[bool, str
         return (False, str(e))
 
 def process_file(file, index: int):
-    """Process a single file with progress tracking"""
+    """Process a single file with timing and progress tracking"""
+    start = time.time()
     with tempfile.NamedTemporaryFile(suffix=".avi") as temp_file:
         temp_file.write(file.getbuffer())
         temp_file.flush()
         output_filename = f"{Path(file.name).stem}_{index}.mp4"
         output_path = OUTPUT_DIR / output_filename
         success, error = convert_single_video(Path(temp_file.name), output_path)
+        duration = time.time() - start
+
         if success:
             with open(output_path, "rb") as f:
                 file_bytes = f.read()
             os.unlink(output_path)
-            return (True, file.name, file_bytes, output_filename, "")
-        return (False, file.name, None, "", error)
+            return (True, file.name, file_bytes, output_filename, "", duration)
+        return (False, file.name, None, "", error, duration)
 
 # Main application
 uploaded_files = st.file_uploader(
@@ -150,24 +148,21 @@ if uploaded_files:
 
             # Process files with ThreadPoolExecutor
             with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
-                futures = []
-                # Submit all files for processing
-                for i, file in enumerate(uploaded_files):
-                    futures.append(executor.submit(process_file, file, i))
+                futures = [executor.submit(process_file, file, i) for i, file in enumerate(uploaded_files)]
 
-                # Monitor progress
                 completed = 0
                 total = len(uploaded_files)
-                for future in futures:
+
+                for future in as_completed(futures):
                     try:
                         result = future.result()
                         results.append(result)
-                        completed += 1
-                        progress = int((completed / total) * 100)
-                        progress_bar.progress(progress)
-                        progress_text.text(f"Processed {completed}/{total} files")
                     except Exception as e:
-                        st.error(f"Error processing file: {str(e)}")
+                        results.append((False, "Unknown", None, "", str(e), 0.0))
+                    completed += 1
+                    progress = int((completed / total) * 100)
+                    progress_bar.progress(progress)
+                    progress_text.text(f"Processed {completed}/{total} files")
 
             # Display results
             success_count = sum(1 for r in results if r[0])
@@ -181,18 +176,18 @@ if uploaded_files:
                 """)
 
                 with st.expander("📥 Download Converted Files", expanded=True):
-                    for success, name, data, output_name, error in results:
+                    for success, name, data, output_name, error, duration in results:
                         if success:
                             with st.container():
                                 st.download_button(
-                                    label=f"Download {output_name}",
+                                    label=f"⬇️ Download {output_name} ({duration:.2f} sec)",
                                     data=data,
                                     file_name=output_name,
                                     mime="video/mp4",
                                     key=f"dl_{output_name}"
                                 )
                         else:
-                            st.error(f"Failed to convert {name}: {error}")
+                            st.error(f"❌ Failed to convert {name} ({duration:.2f} sec): {error}")
             else:
                 st.error("❌ No files were successfully converted")
 else:
