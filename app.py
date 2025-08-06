@@ -30,6 +30,8 @@ def convert_to_mp4(input_path: Path, output_path: Path, progress) -> bool:
         str(output_path)
     ]
 
+    full_output = ""  # Ensure this is always defined
+
     try:
         process = subprocess.Popen(
             command,
@@ -38,7 +40,6 @@ def convert_to_mp4(input_path: Path, output_path: Path, progress) -> bool:
             text=True
         )
 
-        full_output = ""
         progress_val = 0
 
         while True:
@@ -47,7 +48,6 @@ def convert_to_mp4(input_path: Path, output_path: Path, progress) -> bool:
                 break
             if output_line:
                 full_output += output_line
-                # You could parse progress from FFmpeg output if needed
 
             progress_val = min(progress_val + 5, 95)
             progress.progress(progress_val)
@@ -76,6 +76,7 @@ def convert_to_mp4(input_path: Path, output_path: Path, progress) -> bool:
         st.markdown(error_message)
         print(error_message)
         return False
+
 
 # Convert button
 if st.button("Convert to MP4"):
