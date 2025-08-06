@@ -1,86 +1,92 @@
-import os
 import subprocess
 import streamlit as st
 from pathlib import Path
-import shutil
 import tempfile
 
-# Set upload size limit to 500MB
-# st.set_option("server.maxUploadSize", 500)
-
-# Streamlit page settings
+# Streamlit configuration
 st.set_page_config(page_title="AVI to MP4 Converter", layout="centered")
 st.title("🎬 AVI to MP4 Converter")
-st.markdown("Upload multiple `.avi` files (max 500MB each) and convert them to `.mp4` using FFmpeg.")
+st.caption("Upload multiple AVI files (max 500MB each) for conversion to MP4")
 
-# File uploader
-uploaded_files = st.file_uploader("Upload AVI files", type=["avi"], accept_multiple_files=True)
+# Constants
+OUTPUT_DIR = Path("converted_videos")
+OUTPUT_DIR.mkdir(exist_ok=True)
 
-# Output directory
-output_dir = Path("converted_videos")
-output_dir.mkdir(exist_ok=True)
-
-def convert_to_mp4(input_path: Path, output_path: Path, progress):
-    command = [
-        "ffmpeg",
-        "-y",  # Overwrite output file if exists
-        "-i", str(input_path),
-        "-c:v", "libx264",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-preset", "fast",
-        str(output_path)
-    ]
-
+def convert_video(input_path: Path, output_path: Path, progress_bar) -> bool:
+    """Convert video file using FFmpeg with progress tracking"""
     try:
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        progress_val = 0
-        while process.poll() is None:
-            progress_val = min(progress_val + 5, 95)
-            progress.progress(progress_val)
-            st.sleep(0.1)
-        progress.progress(100)
-        return True
+        cmd = [
+            "ffmpeg",
+            "-y",  # Overwrite without asking
+            "-i", str(input_path),
+            "-c:v", "libx264",  # H.264 video codec
+            "-c:a", "aac",      # AAC audio codec
+            "-b:a", "192k",     # Audio bitrate
+            "-preset", "fast",  # Encoding speed/compression tradeoff
+            "-v", "error",      # Only show errors
+            str(output_path)
+        ]
+
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+        # Simple progress simulation (FFmpeg doesn't provide direct progress)
+        for percent in range(0, 101, 5):
+            progress_bar.progress(percent)
+            if process.poll() is not None:
+                break
+            st._experimental_rerun()  # Force UI update
+
+        return process.returncode == 0
+
     except Exception as e:
-        print(f"Error converting {input_path}: {e}")
+        st.error(f"Conversion error: {str(e)}")
         return False
 
-# Convert button
-if st.button("Convert to MP4"):
-    if not uploaded_files:
-        st.warning("Please upload one or more `.avi` files.")
-    else:
-        st.info("Starting conversion...")
-        success_files = []
-        failed_files = []
+# Main application
+uploaded_files = st.file_uploader(
+    "Select AVI files",
+    type=["avi"],
+    accept_multiple_files=True,
+    help="Maximum file size: 500MB each"
+)
 
-        for file in uploaded_files:
-            st.markdown(f"### 🔄 Converting `{file.name}`")
+if st.button("Start Conversion", type="primary") and uploaded_files:
+    success_count = 0
+
+    for file in uploaded_files:
+        with st.expander(f"Processing: {file.name}", expanded=True):
             progress = st.progress(0)
+            status = st.empty()
 
-            # Save uploaded file temporarily
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".avi") as temp_input:
-                temp_input.write(file.read())
-                temp_input_path = Path(temp_input.name)
+            # Create temp file (automatically deleted when context exits)
+            with tempfile.NamedTemporaryFile(suffix=".avi") as temp_file:
+                temp_file.write(file.read())
+                temp_file.flush()  # Ensure all data is written
 
-            # Define output path
-            output_file_path = output_dir / f"{temp_input_path.stem}.mp4"
+                output_path = OUTPUT_DIR / f"{Path(file.name).stem}.mp4"
+                status.info(f"Converting {file.name}...")
 
-            # Convert
-            if convert_to_mp4(temp_input_path, output_file_path, progress):
-                success_files.append(output_file_path)
-            else:
-                failed_files.append(file.name)
+                if convert_video(Path(temp_file.name), output_path, progress):
+                    success_count += 1
+                    status.success("Conversion successful!")
 
-            # Cleanup temp input
-            temp_input_path.unlink(missing_ok=True)
+                    # Show download button
+                    with open(output_path, "rb") as f:
+                        st.download_button(
+                            "Download MP4",
+                            f.read(),
+                            file_name=output_path.name,
+                            mime="video/mp4"
+                        )
+                else:
+                    status.error("Conversion failed")
 
-        # Show results
-        if success_files:
-            st.success(f"✅ Converted {len(success_files)} file(s)!")
-            for f in success_files:
-                st.download_button(f"⬇️ Download {f.name}", f.read_bytes(), file_name=f.name)
+    # Summary
+    if success_count > 0:
+        st.balloons()
+        st.success(f"Successfully converted {success_count}/{len(uploaded_files)} files")
+    else:
+        st.error("No files were successfully converted")
 
-        if failed_files:
-            st.error(f"❌ Failed to convert: {', '.join(failed_files)}")
-
+elif not uploaded_files and st.button("Start Conversion"):
+    st.warning("Please upload at least one AVI file first")
