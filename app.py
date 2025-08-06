@@ -37,7 +37,8 @@ def convert_to_mp4(input_path: Path, output_path: Path, progress) -> bool:
             command,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True
+            text=True,
+            universal_newlines=True
         )
 
         progress_val = 0
@@ -48,10 +49,20 @@ def convert_to_mp4(input_path: Path, output_path: Path, progress) -> bool:
                 break
             if output_line:
                 full_output += output_line
+                # Update progress based on time if we can parse it
+                if "time=" in output_line:
+                    try:
+                        time_str = output_line.split("time=")[1].split()[0]
+                        h, m, s = time_str.split(':')
+                        total_seconds = int(h) * 3600 + int(m) * 60 + float(s)
+                        # Assuming max duration of 10 minutes for progress calculation
+                        progress_val = min(int((total_seconds / 600) * 100), 95)
+                    except:
+                        progress_val = min(progress_val + 5, 95)
+                else:
+                    progress_val = min(progress_val + 1, 95)
 
-            progress_val = min(progress_val + 5, 95)
-            progress.progress(progress_val)
-            st.sleep(0.1)
+                progress.progress(progress_val)
 
         progress.progress(100)
 
@@ -76,6 +87,10 @@ def convert_to_mp4(input_path: Path, output_path: Path, progress) -> bool:
         st.markdown(error_message)
         print(error_message)
         return False
+    finally:
+        # Ensure process is terminated
+        if 'process' in locals():
+            process.terminate()
 
 
 # Convert button
@@ -83,38 +98,71 @@ if st.button("Convert to MP4"):
     if not uploaded_files:
         st.warning("Please upload one or more `.avi` files.")
     else:
-        st.info("Starting conversion...")
+        st.info(f"Starting conversion of {len(uploaded_files)} file(s)...")
         success_files = []
         failed_files = []
 
         for file in uploaded_files:
-            st.markdown(f"### 🔄 Converting `{file.name}`")
-            progress = st.progress(0)
+            with st.expander(f"Converting: {file.name}", expanded=True):
+                progress = st.progress(0)
+                status_text = st.empty()
 
-            # Save uploaded file temporarily
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".avi") as temp_input:
-                temp_input.write(file.read())
-                temp_input_path = Path(temp_input.name)
+                # Save uploaded file temporarily
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".avi") as temp_input:
+                        temp_input.write(file.getbuffer())
+                        temp_input_path = Path(temp_input.name)
 
-            # Define output path
-            output_file_path = output_dir / f"{temp_input_path.stem}.mp4"
+                    # Define output path
+                    output_file_path = output_dir / f"{Path(file.name).stem}.mp4"
 
-            # Convert
-            if convert_to_mp4(temp_input_path, output_file_path, progress):
-                success_files.append(output_file_path)
-            else:
-                failed_files.append(file.name)
+                    status_text.info(f"Converting {file.name}...")
 
-            # Cleanup temp input
-            temp_input_path.unlink(missing_ok=True)
+                    # Convert
+                    if convert_to_mp4(temp_input_path, output_file_path, progress):
+                        success_files.append((output_file_path, file.name))
+                        status_text.success(f"Successfully converted {file.name}!")
+                    else:
+                        failed_files.append(file.name)
+                        status_text.error(f"Failed to convert {file.name}")
+
+                except Exception as e:
+                    failed_files.append(file.name)
+                    status_text.error(f"Error processing {file.name}: {str(e)}")
+                    st.error(traceback.format_exc())
+                finally:
+                    # Cleanup temp input
+                    if 'temp_input_path' in locals():
+                        try:
+                            temp_input_path.unlink(missing_ok=True)
+                        except:
+                            pass
 
         # Show results
+        st.subheader("Conversion Results")
+
         if success_files:
-            st.success(f"✅ Converted {len(success_files)} file(s)!")
-            for f in success_files:
-                st.download_button(f"⬇️ Download {f.name}", f.read_bytes(), file_name=f.name)
+            st.success(f"✅ Successfully converted {len(success_files)} file(s)!")
+            for output_path, original_name in success_files:
+                with st.expander(f"Download {original_name}", expanded=False):
+                    st.download_button(
+                        label=f"⬇️ Download {Path(original_name).stem}.mp4",
+                        data=output_path.read_bytes(),
+                        file_name=f"{Path(original_name).stem}.mp4",
+                        mime="video/mp4"
+                    )
+                    st.video(str(output_path))
 
         if failed_files:
-            st.error(f"❌ Failed to convert the following files:")
+            st.error(f"❌ Failed to convert {len(failed_files)} file(s):")
             for fname in failed_files:
                 st.markdown(f"- `{fname}`")
+
+        # Cleanup old files in output directory (keep only the newly converted ones)
+        current_files = {f[0] for f in success_files}
+        for existing_file in output_dir.glob("*.mp4"):
+            if existing_file not in current_files:
+                try:
+                    existing_file.unlink()
+                except:
+                    pass
